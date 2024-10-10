@@ -1,1 +1,1 @@
-1. Run `docker-compose up -d` to start the server
+1. run `./dev.sh` to start the server which hot reloads on code changes
