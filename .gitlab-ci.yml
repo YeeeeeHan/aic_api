@@ -1,0 +1,73 @@
+stages:
+  - health-check
+  - build
+  - deploy
+
+services:
+  - docker:dind
+
+health-check-job:
+  stage: health-check
+  script:
+    - echo "Health check in progress..."
+    - echo "aic API is in good health!"
+
+build-job:
+  stage: build
+  image: docker:latest
+  before_script:
+    - echo "Setting environment variables for server..."
+    - echo REDIS_HOST=$REDIS_HOST >> .env
+    - echo REDIS_PORT=$REDIS_PORT >> .env
+    - echo REDISADDR=$REDISADDR >> .env
+    - echo URI=$URI >> .env
+    - echo LINKEDINCLIENTID=$LINKEDINCLIENTID >> .env
+    - echo LINKEDINCLIENTSECRET=$LINKEDINCLIENTSECRET >> .env
+    - echo SECRETKEY=$SECRETKEY >> .env
+    - echo SECRETSALT=$SECRETSALT >> .env
+    - echo AWS_ACCESS_KEY=$AWS_ACCESS_KEY >> .env
+    - echo AWS_SECRET_KEY=$AWS_SECRET_KEY >> .env
+    - echo "Environment variables set. "
+  script:
+    - echo "Initiating build..."
+    - docker compose build
+    - echo "Build complete!"
+  environment: production
+
+deploy-job:
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
+  stage: deploy
+  image: registry.gitlab.com/gitlab-org/cloud-deploy/aws-base:latest
+  before_script:
+    - echo "Setting environment variables for server..."
+    - echo REDIS_HOST=$REDIS_HOST >> .env
+    - echo REDIS_PORT=$REDIS_PORT >> .env
+    - echo REDISADDR=$REDISADDR >> .env
+    - echo URI=$URI >> .env
+    - echo LINKEDINCLIENTID=$LINKEDINCLIENTID >> .env
+    - echo LINKEDINCLIENTSECRET=$LINKEDINCLIENTSECRET >> .env
+    - echo SECRETKEY=$SECRETKEY >> .env
+    - echo SECRETSALT=$SECRETSALT >> .env
+    - echo AWS_ACCESS_KEY=$AWS_ACCESS_KEY >> .env
+    - echo AWS_SECRET_KEY=$AWS_SECRET_KEY >> .env
+    - echo "Environment variables set. "
+    - echo "Setting environment variables for AWS deployment..."
+    - export AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION
+    - export S3_BUCKET=$S3_BUCKET
+    - export APP_NAME=$APP_NAME
+    - export ENV_NAME=$ENV_NAME
+    - echo "Environment variables set."
+  script:
+    - echo "Initiating deployment..."
+    - echo "Configuring AWS credentials..."
+    - aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
+    - aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+    - echo "AWS credentials configured."
+    - echo "Uploading source code to AWS..."
+    - zip -r deploy.zip . -x '*.git*'
+    - aws s3 cp deploy.zip s3://$S3_BUCKET/deploy.zip
+    - aws elasticbeanstalk create-application-version --application-name $APP_NAME --version-label "aic-api-$CI_COMMIT_SHA" --source-bundle S3Bucket=$S3_BUCKET,S3Key=deploy.zip
+    - aws elasticbeanstalk update-environment --application-name $APP_NAME --environment-name $ENV_NAME --version-label "aic-api-$CI_COMMIT_SHA"
+    - echo "Deployment complete!"
+  environment: production
